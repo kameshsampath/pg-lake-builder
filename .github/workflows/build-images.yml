@@ -1,0 +1,174 @@
+name: Build and Push Docker Images
+
+on:
+    # Run weekly on Sundays at 00:00 UTC
+    schedule:
+        - cron: "0 0 * * 0"
+
+    # Allow manual trigger
+    workflow_dispatch:
+        inputs:
+            pg_lake_repo:
+                description: "pg_lake source repository"
+                required: false
+                default: "snowflake-labs/pg_lake"
+                type: string
+            pg_lake_ref:
+                description: "pg_lake branch/tag/commit to build"
+                required: false
+                default: "main"
+                type: string
+            pg_versions:
+                description: 'PostgreSQL versions to build (comma-separated, e.g., "16,17,18")'
+                required: false
+                default: "16,17,18"
+                type: string
+            base_image_os:
+                description: "Base image OS"
+                required: false
+                default: "almalinux"
+                type: choice
+                options:
+                    - almalinux
+                    - debian
+            platforms:
+                description: "Target platforms"
+                required: false
+                default: "linux/amd64,linux/arm64"
+                type: string
+
+env:
+    REGISTRY: ghcr.io
+    IMAGE_OWNER: ${{ github.repository_owner }}
+    PG_LAKE_REPO: ${{ inputs.pg_lake_repo || 'snowflake-labs/pg_lake' }}
+    PG_LAKE_REF: ${{ inputs.pg_lake_ref || 'main' }}
+
+jobs:
+    build-and-push:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+            attestations: write
+            id-token: write
+
+        strategy:
+            fail-fast: false
+            matrix:
+                pg_major: [16, 17, 18]
+                base_image_os: [almalinux,debian]
+
+        steps:
+            - name: Checkout pg_lake source repository
+              uses: actions/checkout@v4
+              with:
+                  repository: ${{ env.PG_LAKE_REPO }}
+                  ref: ${{ env.PG_LAKE_REF }}
+                  submodules: "recursive"
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Log in to GitHub Container Registry
+              uses: docker/login-action@v3
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Install Task
+              uses: arduino/setup-task@v2
+              with:
+                  version: 3.x
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Get pg_lake commit SHA
+              id: pg-lake-sha
+              run: |
+                  cd ${{ github.workspace }}
+                  PG_LAKE_SHA=$(git rev-parse HEAD | cut -c1-7)
+                  echo "sha=$PG_LAKE_SHA" >> $GITHUB_OUTPUT
+                  echo "Building pg_lake from commit: $PG_LAKE_SHA"
+
+            - name: Generate image tags
+              id: tags
+              run: |
+                  echo "version=${{ steps.pg-lake-sha.outputs.sha }}" >> $GITHUB_OUTPUT
+                  echo "os_tag=${{ matrix.base_image_os }}" >> $GITHUB_OUTPUT
+
+            - name: Build and push images for PG ${{ matrix.pg_major }}
+              working-directory: ./docker
+              env:
+                  REGISTRY: ${{ env.REGISTRY }}
+                  IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
+                  PG_MAJOR: ${{ matrix.pg_major }}
+                  VERSION: ${{ steps.tags.outputs.version }}
+                  BASE_IMAGE_OS: ${{ matrix.base_image_os }}
+                  BASE_IMAGE_TAG: "9"
+                  PLATFORMS: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_ACTOR: ${{ github.actor }}
+              run: |
+                  # Login to GHCR for buildx
+                  task login:ghcr
+
+                  # Build and push all images (pg_lake_postgres and pgduck-server)
+                  task push:all \
+                    PG_MAJOR=${{ matrix.pg_major }} \
+                    VERSION=${{ steps.tags.outputs.version }} \
+                    BASE_IMAGE_OS=${{ matrix.base_image_os }} \
+                    BASE_IMAGE_TAG=9 \
+                    PLATFORMS="${PLATFORMS}" \
+                    REGISTRY=${{ env.REGISTRY }} \
+                    IMAGE_OWNER=${{ env.IMAGE_OWNER }}
+
+            - name: Generate artifact attestation for pg_lake
+              uses: actions/attest-build-provenance@v1
+              with:
+                  subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/pg_lake
+                  subject-digest: ${{ steps.tags.outputs.version }}-pg${{ matrix.pg_major }}-${{ matrix.base_image_os }}
+                  push-to-registry: false
+
+            - name: Generate artifact attestation for pgduck-server
+              uses: actions/attest-build-provenance@v1
+              with:
+                  subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/pgduck-server
+                  subject-digest: ${{ steps.tags.outputs.version }}-pg${{ matrix.pg_major }}-${{ matrix.base_image_os }}
+                  push-to-registry: false
+
+    summary:
+        needs: build-and-push
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Checkout pg_lake source repository
+              uses: actions/checkout@v4
+              with:
+                  repository: ${{ env.PG_LAKE_REPO }}
+                  ref: ${{ env.PG_LAKE_REF }}
+                  fetch-depth: 1
+
+            - name: Generate summary
+              run: |
+                  PG_LAKE_SHA=$(git rev-parse HEAD | cut -c1-7)
+
+                  echo "## Build and Push Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### Source Repository" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Repository:** \`${{ env.PG_LAKE_REPO }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Branch/Ref:** \`${{ env.PG_LAKE_REF }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Commit SHA:** \`$PG_LAKE_SHA\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### Images Built and Pushed" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Version Tag:** \`$PG_LAKE_SHA\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Images:**" >> $GITHUB_STEP_SUMMARY
+                  echo "- \`ghcr.io/${{ github.repository_owner }}/pg_lake:${PG_LAKE_SHA}-pg16-almalinux\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- \`ghcr.io/${{ github.repository_owner }}/pg_lake:${PG_LAKE_SHA}-pg17-almalinux\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- \`ghcr.io/${{ github.repository_owner }}/pg_lake:${PG_LAKE_SHA}-pg18-almalinux\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- \`ghcr.io/${{ github.repository_owner }}/pgduck-server:${PG_LAKE_SHA}-pg16-almalinux\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- \`ghcr.io/${{ github.repository_owner }}/pgduck-server:${PG_LAKE_SHA}-pg17-almalinux\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- \`ghcr.io/${{ github.repository_owner }}/pgduck-server:${PG_LAKE_SHA}-pg18-almalinux\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Status:** ${{ needs.build-and-push.result }}" >> $GITHUB_STEP_SUMMARY
