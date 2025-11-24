@@ -40,7 +40,23 @@ env:
     PG_LAKE_REF: ${{ inputs.pg_lake_ref || 'main' }}
 
 jobs:
+    prepare-matrix:
+        runs-on: ubuntu-latest
+        outputs:
+            pg_versions: ${{ steps.set-matrix.outputs.pg_versions }}
+        steps:
+            - name: Set matrix
+              id: set-matrix
+              run: |
+                  # Parse pg_versions input (comma-separated)
+                  INPUT_VERSIONS="${{ inputs.pg_versions || '16,17,18' }}"
+                  # Convert comma-separated to JSON array
+                  PG_VERSIONS=$(echo "$INPUT_VERSIONS" | jq -R -c 'split(",") | map(tonumber)')
+                  echo "pg_versions=$PG_VERSIONS" >> $GITHUB_OUTPUT
+                  echo "Building PostgreSQL versions: $PG_VERSIONS"
+
     build-and-push:
+        needs: prepare-matrix
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -51,7 +67,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                pg_major: [16, 17, 18]
+                pg_major: ${{ fromJson(needs.prepare-matrix.outputs.pg_versions) }}
                 base_image_os: [almalinux, debian]
 
         steps:
@@ -149,7 +165,7 @@ jobs:
                   push-to-registry: false
 
     summary:
-        needs: build-and-push
+        needs: [prepare-matrix, build-and-push]
         runs-on: ubuntu-latest
         if: always()
         steps:
@@ -194,8 +210,9 @@ jobs:
                   echo "**Version Tag:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
-                  # Define arrays for PG versions and OS types
-                  PG_VERSIONS=(16 17 18)
+                  # Parse PG versions from input
+                  INPUT_VERSIONS="${{ inputs.pg_versions || '16,17,18' }}"
+                  IFS=',' read -ra PG_VERSIONS <<< "$INPUT_VERSIONS"
                   OS_TYPES=(almalinux debian)
 
                   echo "#### pg_lake Images:" >> $GITHUB_STEP_SUMMARY
