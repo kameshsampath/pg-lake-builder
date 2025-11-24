@@ -1,9 +1,9 @@
 name: Monitor Upstream pg_lake Repository
 
 on:
-  # Check for upstream changes every 6 hours
+  # Check for upstream changes nightly at 2 AM UTC
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "0 2 * * *"
 
   # Allow manual trigger to test
   workflow_dispatch:

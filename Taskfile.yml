@@ -227,12 +227,14 @@ tasks:
                   PG_VERSIONS: "16,17,18"
                   PLATFORMS: "linux/amd64,linux/arm64"
 
-    build:test:
-        desc: Test build (PG 18, AlmaLinux only, AMD64, from main)
+    build:latest-single-pg:
+        desc: Build latest main with single PG version (usage - task build:latest-single-pg PG_MAJOR=18)
         cmds:
-            - task: build:quick
+            - task: build
               vars:
                   PG_LAKE_REF: "main"
+                  PG_VERSIONS: '{{.PG_MAJOR | default "18"}}'
+                  PLATFORMS: "linux/amd64,linux/arm64"
 
     build:release:
         desc: Build from latest upstream tag (both OSes, all platforms)

@@ -6,7 +6,7 @@ This repository automatically monitors the upstream [Snowflake-Labs/pg_lake](htt
 
 ### Workflow: `monitor-upstream.yml`
 
-The monitoring workflow runs **every 6 hours** and performs two checks:
+The monitoring workflow runs **nightly at 2 AM UTC** and performs two checks:
 
 #### 1. **Commit Monitoring**
 - Checks the latest commit SHA on the `main` branch
@@ -33,13 +33,13 @@ These files are committed to the repository to maintain state between workflow r
 
 ```yaml
 schedule:
-  - cron: "0 */6 * * *"  # Every 6 hours
+  - cron: "0 2 * * *"  # Nightly at 2 AM UTC
 ```
 
 **Schedule breakdown:**
-- Checks 4 times per day (00:00, 06:00, 12:00, 18:00 UTC)
+- Checks once per day at 2 AM UTC
 - Minimal API calls to GitHub
-- Balances freshness with rate limiting
+- Automatically catches upstream changes overnight
 
 ## Triggered Builds
 
@@ -172,7 +172,7 @@ GitHub API allows:
 - **Authenticated**: 5,000 requests/hour
 - **Unauthenticated**: 60 requests/hour
 
-The workflow uses the `GITHUB_TOKEN` (authenticated), so rate limiting should not be an issue at 4 checks per day.
+The workflow uses the `GITHUB_TOKEN` (authenticated), so rate limiting should not be an issue with daily checks.
 
 ### Reset Tracking
 

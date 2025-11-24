@@ -5,6 +5,7 @@
 > This is a **community-maintained** builder repository for creating Docker images from the [pg_lake](https://github.com/Snowflake-Labs/pg_lake) source code.
 >
 > **Important Notes:**
+>
 > - ❌ **NOT maintained** by the pg_lake project committers or Snowflake Labs
 > - ❌ **NO official support** - use at your own risk
 > - ❌ **NOT endorsed** by the pg_lake project team
@@ -12,8 +13,9 @@
 > - ✅ Images are built from official pg_lake source but with custom build configurations
 >
 > **For official pg_lake support and releases**, please refer to:
-> - Official repository: https://github.com/Snowflake-Labs/pg_lake
-> - Official documentation: https://github.com/Snowflake-Labs/pg_lake/blob/main/docs/README.md
+>
+> - Official repository: <https://github.com/Snowflake-Labs/pg_lake>
+> - Official documentation: <https://github.com/Snowflake-Labs/pg_lake/blob/main/docs/README.md>
 >
 > ---
 
@@ -35,6 +37,7 @@ This repository contains GitHub Actions workflows to automatically build and pub
 ## Images Published
 
 **Community builds** published to:
+
 - `ghcr.io/kameshsampath/pg_lake`
 - `ghcr.io/kameshsampath/pgduck-server`
 
@@ -42,12 +45,12 @@ This repository contains GitHub Actions workflows to automatically build and pub
 
 ## Features
 
-✅ **Automatic upstream monitoring** - Detects new commits and tags every 6 hours  
+✅ **Automatic upstream monitoring** - Detects new commits and tags nightly  
 ✅ **Multi-version support** - PostgreSQL 16, 17, and 18  
 ✅ **Multi-OS support** - Both AlmaLinux and Debian base images  
 ✅ **Multi-architecture** - AMD64 and ARM64 platforms  
 ✅ **Tag-aware** - Automatically uses tag names for release builds  
-✅ **Flexible triggers** - Manual, scheduled, and upstream-driven builds  
+✅ **Flexible triggers** - Automatic monitoring and manual on-demand builds  
 ✅ **Supply chain security** - Build provenance attestations included  
 
 ## Supported Versions
@@ -59,11 +62,12 @@ This repository contains GitHub Actions workflows to automatically build and pub
 
 ## Automated Builds
 
-Images are automatically built in three ways:
+Images are automatically built in two ways:
 
-### 1. **Upstream Monitoring** (Every 6 hours) 🔍
+### 1. **Upstream Monitoring** (Nightly) 🔍
 
 The `monitor-upstream.yml` workflow:
+
 - Monitors [Snowflake-Labs/pg_lake](https://github.com/snowflake-labs/pg_lake) for changes
 - Checks for new commits on the `main` branch
 - Checks for new tags/releases
@@ -71,23 +75,27 @@ The `monitor-upstream.yml` workflow:
 - Tracks state in `.last-build-commit` and `.last-build-tag` to avoid duplicates
 
 **What gets built:**
+
 - All 3 PostgreSQL versions (16, 17, 18)
 - Both base OSes (AlmaLinux and Debian)
 - Multi-architecture (AMD64 and ARM64)
 
-### 2. **Weekly Scheduled Build** (Sundays at midnight UTC) 📅
+**Frequency:** Runs nightly at 2 AM UTC
 
-The `build-images.yml` workflow runs weekly to:
-- Ensure regular rebuilds even without upstream changes
-- Pick up base image updates and security patches
-- Maintain fresh images with latest dependencies
-
-### 3. **Manual Trigger** (On-demand) 👆
+### 2. **Manual Trigger** (On-demand) 👆
 
 Trigger builds manually via:
+
 - GitHub Actions UI
-- GitHub CLI
-- Task commands (see below)
+- GitHub CLI (`gh workflow run`)
+- Task commands (convenient shortcuts - see below)
+
+**Use cases for manual builds:**
+
+- Force rebuild for base image updates
+- Build from a specific branch or commit
+- Test builds with custom configurations
+- Build from your own fork
 
 ## Manual Builds
 
@@ -130,6 +138,7 @@ This repository includes a `Taskfile.yml` with convenient commands for managing 
 ### Prerequisites
 
 Install Task:
+
 ```bash
 # macOS
 brew install go-task
@@ -146,6 +155,14 @@ task build
 
 # Build from upstream main branch
 task build:main
+
+# Build latest main with all versions, both OSes, all platforms
+task build:latest
+
+# Build latest main with single PG version (default: 18)
+task build:latest-single-pg
+task build:latest-single-pg PG_MAJOR=16
+task build:latest-single-pg PG_MAJOR=17
 
 # Build from a specific tag
 task build:tag PG_LAKE_REF=v3.0.0
@@ -165,10 +182,10 @@ task build:almalinux
 # Build with Debian base only
 task build:debian
 
-# Build AMD64 only (faster)
+# Build AMD64 only (both OSes)
 task build:amd64
 
-# Build ARM64 only
+# Build ARM64 only (both OSes)
 task build:arm64
 ```
 
@@ -180,6 +197,9 @@ task build PG_LAKE_REPO=kameshsampath/pg_lake
 
 # Build specific commit
 task build PG_LAKE_REF=abc1234
+
+# Build latest main with PG 16 only (both OSes, multi-arch)
+task build:latest-single-pg PG_MAJOR=16
 
 # Build PG 17 only, ARM64
 task build PG_VERSIONS=17 PLATFORMS=linux/arm64
@@ -269,6 +289,22 @@ task --list-all
 task help
 ```
 
+### Quick Reference Table
+
+| Command | PG Versions | Base OS | Platforms | Use Case |
+|---------|-------------|---------|-----------|----------|
+| `task build` | 16, 17, 18 | Both | Multi-arch | Full production build |
+| `task build:main` | 16, 17, 18 | Both | Multi-arch | Build from upstream main |
+| `task build:latest` | 16, 17, 18 | Both | Multi-arch | Build latest from main |
+| `task build:latest-single-pg PG_MAJOR=18` | Custom (16/17/18) | Both | Multi-arch | Latest with single PG version |
+| `task build:release` | 16, 17, 18 | Both | Multi-arch | Build latest upstream tag |
+| `task build:quick` | 18 | AlmaLinux | AMD64 | Fast test build |
+| `task build:pg18` | 18 | Both | Multi-arch | PG 18, both OSes |
+| `task build:almalinux` | 16, 17, 18 | AlmaLinux | Multi-arch | AlmaLinux only |
+| `task build:debian` | 16, 17, 18 | Debian | Multi-arch | Debian only |
+| `task build:amd64` | 16, 17, 18 | Both | AMD64 | AMD64 only (faster) |
+| `task build:arm64` | 16, 17, 18 | Both | ARM64 | ARM64 only |
+
 ## Image Naming Convention
 
 Images are tagged based on what is being built from the **pg_lake source repository**.
@@ -283,6 +319,7 @@ ghcr.io/kameshsampath/pgduck-server:<commit-sha>-pg<version>-<os>
 ```
 
 **Example:**
+
 ```
 ghcr.io/kameshsampath/pg_lake:abc1234-pg18-almalinux
 ghcr.io/kameshsampath/pg_lake:abc1234-pg18-debian
@@ -291,6 +328,7 @@ ghcr.io/kameshsampath/pgduck-server:abc1234-pg18-debian
 ```
 
 Where:
+
 - `abc1234` = First 7 characters of the pg_lake source commit SHA
 - `pg18` = PostgreSQL major version
 - `almalinux`/`debian` = Base OS
@@ -305,6 +343,7 @@ ghcr.io/kameshsampath/pgduck-server:<tag>-pg<version>-<os>
 ```
 
 **Example:**
+
 ```
 ghcr.io/kameshsampath/pg_lake:v3.0.0-pg18-almalinux
 ghcr.io/kameshsampath/pg_lake:v3.0.0-pg18-debian
@@ -313,6 +352,7 @@ ghcr.io/kameshsampath/pgduck-server:v3.0.0-pg18-debian
 ```
 
 Where:
+
 - `v3.0.0` = The release tag name
 - `pg18` = PostgreSQL major version
 - `almalinux`/`debian` = Base OS
@@ -381,7 +421,7 @@ The repository includes automatic monitoring of the upstream pg_lake repository:
 
 ### How It Works
 
-1. **Every 6 hours**, the monitoring workflow checks:
+1. **Nightly at 2 AM UTC**, the monitoring workflow checks:
    - Latest commit on `main` branch
    - Latest release tag
 
@@ -445,10 +485,10 @@ pg-lake-builder/
 
 | Trigger Type | Frequency | Builds Both OSes | Description |
 |--------------|-----------|------------------|-------------|
-| **Upstream Monitoring** | Every 6 hours | ✅ Yes | Auto-detects commits and tags |
-| **Weekly Scheduled** | Sundays 00:00 UTC | ✅ Yes | Regular rebuild for updates |
+| **Upstream Monitoring** | Nightly (2 AM UTC) | ✅ Yes | Auto-detects commits and tags from upstream |
 | **Manual (GitHub UI)** | On-demand | ✅ Yes (default) | Full control over options |
 | **Manual (Task)** | On-demand | ✅ Yes (default) | Quick commands |
+| **Manual (GitHub CLI)** | On-demand | ✅ Yes (default) | Command-line flexibility |
 
 ## Troubleshooting
 
@@ -480,6 +520,7 @@ task build
 ### Image Not Found
 
 Images may take a few minutes to appear after build completes:
+
 1. Check build completed successfully: `task status:build`
 2. Verify image was pushed (check workflow logs)
 3. Images are public - no authentication needed to pull

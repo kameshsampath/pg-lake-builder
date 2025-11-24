@@ -1,11 +1,7 @@
 name: Build and Push Docker Images
 
 on:
-    # Run weekly on Sundays at 00:00 UTC
-    schedule:
-        - cron: "0 0 * * 0"
-
-    # Allow manual trigger
+    # Manual trigger only (automatic builds handled by monitor-upstream.yml)
     workflow_dispatch:
         inputs:
             pg_lake_repo:
