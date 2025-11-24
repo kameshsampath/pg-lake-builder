@@ -554,7 +554,7 @@ Images may take a few minutes to appear after build completes:
 
 > **⚠️ DISCLAIMER**: This is a community/developer build repository.
 
-- **This builder repository**: Configuration files are MIT licensed
+- **This builder repository**: Configuration files are licensed under Apache License 2.0
 - **pg_lake source code**: Licensed under Apache 2.0 by Snowflake Inc. (see [pg_lake LICENSE](https://github.com/Snowflake-Labs/pg_lake/blob/main/LICENSE))
 - **Docker images produced**: Contain pg_lake software licensed under Apache 2.0
 - **No warranty**: These community builds come with NO WARRANTY or official support
