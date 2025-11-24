@@ -56,9 +56,16 @@ This repository contains GitHub Actions workflows to automatically build and pub
 ## Supported Versions
 
 - **PostgreSQL**: 16, 17, 18
-- **Base OS**: AlmaLinux 9, Debian (latest)
+- **Base OS**:
+  - AlmaLinux 9 (`almalinux:9`)
+  - Debian latest (`debian:latest`)
 - **Architectures**: linux/amd64, linux/arm64
 - **Images per build**: 12 total (3 PG versions × 2 OSes × 2 image types)
+
+> **Note**: Base image tags are automatically set based on OS:
+>
+> - AlmaLinux builds use `BASE_IMAGE_TAG=9` → `almalinux:9`
+> - Debian builds use `BASE_IMAGE_TAG=latest` → `debian:latest`
 
 ## Automated Builds
 
@@ -113,7 +120,7 @@ Trigger builds manually via:
 ### Via GitHub CLI
 
 ```bash
-# Build from main (both OSes, all platforms)
+# Build from main (all PG versions, both OSes, all platforms)
 gh workflow run build-images.yml \
   -f pg_lake_ref=main
 
@@ -121,11 +128,15 @@ gh workflow run build-images.yml \
 gh workflow run build-images.yml \
   -f pg_lake_ref=v3.0.0
 
-# Build specific PostgreSQL version only
+# Build only PostgreSQL 18 (both OSes, multi-arch)
 gh workflow run build-images.yml \
   -f pg_versions=18
 
-# Quick test build (AMD64 only)
+# Build only PostgreSQL 16 and 17
+gh workflow run build-images.yml \
+  -f pg_versions="16,17"
+
+# Quick test build (PG 18 only, AMD64 only)
 gh workflow run build-images.yml \
   -f pg_versions=18 \
   -f platforms=linux/amd64
@@ -476,10 +487,17 @@ pg-lake-builder/
 │       └── monitor-upstream.yml  # Upstream monitoring
 ├── .last-build-commit            # Tracks last built commit
 ├── .last-build-tag               # Tracks last built tag
-├── Taskfile.yml                  # Task automation commands
+├── Taskfile.yml                  # Task commands for workflow triggers
 ├── MONITORING.md                 # Monitoring documentation
 └── README.md                     # This file
+
+pg_lake/ (checked out during build)
+└── docker/
+    ├── Dockerfile                # Docker build configuration
+    └── Taskfile.yml              # Task commands for building images
 ```
+
+**Note**: This builder repository's `Taskfile.yml` contains commands for triggering and managing workflows. The pg_lake repository has its own `Taskfile.yml` in the `docker/` directory with commands for actually building the Docker images.
 
 ## Build Schedule Summary
 

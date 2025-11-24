@@ -124,6 +124,18 @@ jobs:
                   echo "version=${{ steps.pg-lake-version.outputs.version }}" >> $GITHUB_OUTPUT
                   echo "os_tag=${{ matrix.base_image_os }}" >> $GITHUB_OUTPUT
 
+            - name: Verify Taskfile exists
+              run: |
+                  if [ -f pg_lake/docker/Taskfile.yml ]; then
+                    echo "✅ Using Taskfile from pg_lake/docker/"
+                    ls -la pg_lake/docker/Taskfile.yml
+                  else
+                    echo "❌ ERROR: Taskfile not found in pg_lake/docker/"
+                    echo "Available files in pg_lake/docker:"
+                    ls -la pg_lake/docker/
+                    exit 1
+                  fi
+
             - name: Build and push images for PG ${{ matrix.pg_major }}
               working-directory: ./pg_lake/docker
               env:
@@ -132,11 +144,18 @@ jobs:
                   PG_MAJOR: ${{ matrix.pg_major }}
                   VERSION: ${{ steps.tags.outputs.version }}
                   BASE_IMAGE_OS: ${{ matrix.base_image_os }}
-                  BASE_IMAGE_TAG: "9"
                   PLATFORMS: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GITHUB_ACTOR: ${{ github.actor }}
               run: |
+                  # Set BASE_IMAGE_TAG based on OS
+                  if [ "${{ matrix.base_image_os }}" = "almalinux" ]; then
+                    BASE_IMAGE_TAG="9"
+                  else
+                    BASE_IMAGE_TAG="latest"
+                  fi
+                  echo "Building with ${{ matrix.base_image_os }}:${BASE_IMAGE_TAG}"
+
                   # Login to GHCR for buildx
                   task login:ghcr
 
@@ -145,7 +164,7 @@ jobs:
                     PG_MAJOR=${{ matrix.pg_major }} \
                     VERSION=${{ steps.tags.outputs.version }} \
                     BASE_IMAGE_OS=${{ matrix.base_image_os }} \
-                    BASE_IMAGE_TAG=9 \
+                    BASE_IMAGE_TAG=${BASE_IMAGE_TAG} \
                     PLATFORMS="${PLATFORMS}" \
                     REGISTRY=${{ env.REGISTRY }} \
                     IMAGE_OWNER=${{ env.IMAGE_OWNER }}
