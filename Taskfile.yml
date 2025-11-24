@@ -88,6 +88,32 @@ tasks:
               vars:
                   PLATFORMS: "linux/arm64"
 
+    build:latest:
+        desc: Build latest main with all versions, both OSes, and all platforms
+        cmds:
+            - task: build
+              vars:
+                  PG_LAKE_REF: "main"
+                  PG_VERSIONS: "16,17,18"
+                  PLATFORMS: "linux/amd64,linux/arm64"
+
+    build:latest-single-pg:
+        desc: Build latest main with single PG version (usage - task build:latest-single-pg PG_MAJOR=18)
+        cmds:
+            - task: build
+              vars:
+                  PG_LAKE_REF: "main"
+                  PG_VERSIONS: '{{.PG_MAJOR | default "18"}}'
+                  PLATFORMS: "linux/amd64,linux/arm64"
+
+    build:release:
+        desc: Build from latest upstream tag (both OSes, all platforms)
+        cmds:
+            - |
+                LATEST_TAG=$(gh api repos/snowflake-labs/pg_lake/tags --jq '.[0].name')
+                echo "🏷️  Latest upstream tag{{":"}} $LATEST_TAG"
+                task build:tag PG_LAKE_REF=$LATEST_TAG
+
     # Monitoring Workflow
     monitor:
         desc: Trigger upstream monitoring workflow
@@ -216,34 +242,6 @@ tasks:
         desc: View monitoring workflow details
         cmds:
             - gh workflow view monitor-upstream.yml
-
-    # Common Build Scenarios
-    build:latest:
-        desc: Build latest main with all versions, both OSes, and all platforms
-        cmds:
-            - task: build
-              vars:
-                  PG_LAKE_REF: "main"
-                  PG_VERSIONS: "16,17,18"
-                  PLATFORMS: "linux/amd64,linux/arm64"
-
-    build:latest-single-pg:
-        desc: Build latest main with single PG version (usage - task build:latest-single-pg PG_MAJOR=18)
-        cmds:
-            - task: build
-              vars:
-                  PG_LAKE_REF: "main"
-                  PG_VERSIONS: '{{.PG_MAJOR | default "18"}}'
-                  PLATFORMS: "linux/amd64,linux/arm64"
-
-    build:release:
-        desc: Build from latest upstream tag (both OSes, all platforms)
-        cmds:
-            - |
-                LATEST_TAG=$(gh api repos/snowflake-labs/pg_lake/tags --jq '.[0].name')
-                echo "🏷️  Latest upstream tag: $LATEST_TAG"
-                task build:tag PG_LAKE_REF=$LATEST_TAG
-
     # Help
     help:
         desc: Show available tasks
