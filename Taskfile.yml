@@ -1,0 +1,252 @@
+version: "3"
+
+vars:
+    PG_LAKE_REPO: '{{.PG_LAKE_REPO | default "snowflake-labs/pg_lake"}}'
+    PG_LAKE_REF: '{{.PG_LAKE_REF | default "main"}}'
+    PG_VERSIONS: '{{.PG_VERSIONS | default "16,17,18"}}'
+    BASE_IMAGE_OS: '{{.BASE_IMAGE_OS | default ""}}'
+    PLATFORMS: '{{.PLATFORMS | default "linux/amd64,linux/arm64"}}'
+
+tasks:
+    # Build Workflow Triggers
+    build:
+        desc: Trigger full build workflow (builds both AlmaLinux and Debian by default)
+        cmds:
+            - |
+                CMD="gh workflow run build-images.yml \
+                  -f pg_lake_repo={{.PG_LAKE_REPO}} \
+                  -f pg_lake_ref={{.PG_LAKE_REF}} \
+                  -f pg_versions={{.PG_VERSIONS}}"
+                
+                # Only add base_image_os if explicitly specified
+                {{if .BASE_IMAGE_OS}}
+                CMD="$CMD -f base_image_os={{.BASE_IMAGE_OS}}"
+                {{end}}
+                
+                CMD="$CMD -f platforms={{.PLATFORMS}}"
+                
+                eval $CMD
+            - echo "✅ Build workflow triggered"
+            - echo "   Building: PG {{.PG_VERSIONS}} × AlmaLinux, Debian × {{.PLATFORMS}}"
+            - echo "Watch it with: task watch"
+
+    build:main:
+        desc: Build from upstream main (default)
+        cmds:
+            - task: build
+              vars:
+                  PG_LAKE_REF: main
+
+    build:tag:
+        desc: Build from a specific tag (usage - task build:tag PG_LAKE_REF=v3.0.0)
+        cmds:
+            - task: build
+        requires:
+            vars: [PG_LAKE_REF]
+
+    build:quick:
+        desc: Quick test build (PG 18, AlmaLinux only, AMD64 only)
+        cmds:
+            - task: build
+              vars:
+                  PG_VERSIONS: "18"
+                  BASE_IMAGE_OS: "almalinux"
+                  PLATFORMS: "linux/amd64"
+            - echo "✅ Quick build triggered (PG 18, AlmaLinux, AMD64)"
+
+    build:pg18:
+        desc: Build only PostgreSQL 18 (both OSes)
+        cmds:
+            - task: build
+              vars:
+                  PG_VERSIONS: "18"
+
+    build:almalinux:
+        desc: Build with AlmaLinux base images only
+        cmds:
+            - task: build
+              vars:
+                  BASE_IMAGE_OS: "almalinux"
+
+    build:debian:
+        desc: Build with Debian base images only
+        cmds:
+            - task: build
+              vars:
+                  BASE_IMAGE_OS: "debian"
+
+    build:amd64:
+        desc: Build AMD64 only (both OSes, faster)
+        cmds:
+            - task: build
+              vars:
+                  PLATFORMS: "linux/amd64"
+
+    build:arm64:
+        desc: Build ARM64 only (both OSes)
+        cmds:
+            - task: build
+              vars:
+                  PLATFORMS: "linux/arm64"
+
+    # Monitoring Workflow
+    monitor:
+        desc: Trigger upstream monitoring workflow
+        cmds:
+            - gh workflow run monitor-upstream.yml
+            - echo "✅ Monitoring workflow triggered"
+            - echo "Watch it with: task watch"
+
+    # Workflow Status & Monitoring
+    watch:
+        desc: Watch the latest workflow run
+        cmds:
+            - gh run watch
+
+    watch:build:
+        desc: Watch latest build workflow run
+        cmds:
+            - gh run watch $(gh run list --workflow=build-images.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+
+    watch:monitor:
+        desc: Watch latest monitoring workflow run
+        cmds:
+            - gh run watch $(gh run list --workflow=monitor-upstream.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+
+    status:
+        desc: Show status of recent workflow runs
+        cmds:
+            - echo "📊 Recent Workflow Runs:"
+            - echo ""
+            - gh run list --limit 10
+
+    status:build:
+        desc: Show build workflow runs
+        cmds:
+            - echo "🏗️  Build Workflow Runs:"
+            - echo ""
+            - gh run list --workflow=build-images.yml --limit 10
+
+    status:monitor:
+        desc: Show monitoring workflow runs
+        cmds:
+            - echo "🔍 Monitoring Workflow Runs:"
+            - echo ""
+            - gh run list --workflow=monitor-upstream.yml --limit 10
+
+    logs:
+        desc: View logs of the latest workflow run
+        cmds:
+            - gh run view --log
+
+    logs:build:
+        desc: View logs of latest build workflow
+        cmds:
+            - gh run view $(gh run list --workflow=build-images.yml --limit 1 --json databaseId --jq '.[0].databaseId') --log
+
+    logs:monitor:
+        desc: View logs of latest monitoring workflow
+        cmds:
+            - gh run view $(gh run list --workflow=monitor-upstream.yml --limit 1 --json databaseId --jq '.[0].databaseId') --log
+
+    cancel:
+        desc: Cancel the latest workflow run
+        cmds:
+            - gh run cancel $(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')
+            - echo "❌ Latest workflow run cancelled"
+
+    cancel:build:
+        desc: Cancel latest build workflow
+        cmds:
+            - gh run cancel $(gh run list --workflow=build-images.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+            - echo "❌ Build workflow cancelled"
+
+    rerun:
+        desc: Rerun the latest failed workflow
+        cmds:
+            - gh run rerun $(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')
+            - echo "🔄 Workflow rerun triggered"
+
+    # Image Management
+    images:list:
+        desc: List published packages
+        cmds:
+            - echo "📦 Published Packages:"
+            - echo ""
+            - gh api /user/packages?package_type=container --jq '.[] | select(.name | contains("pg_lake") or contains("pgduck")) | {name, visibility, updated_at}'
+
+    images:list-versions:
+        desc: List versions of pg_lake image
+        cmds:
+            - echo "🏷️  pg_lake Image Versions:"
+            - echo ""
+            - gh api /user/packages/container/pg_lake/versions --jq '.[] | {name: .metadata.container.tags[0], created_at}'
+
+    # Utility Tasks
+    workflows:
+        desc: List all workflows
+        cmds:
+            - gh workflow list
+
+    workflows:enable:
+        desc: Enable all workflows
+        cmds:
+            - gh workflow enable build-images.yml
+            - gh workflow enable monitor-upstream.yml
+            - echo "✅ All workflows enabled"
+
+    workflows:disable:
+        desc: Disable all workflows
+        cmds:
+            - gh workflow disable build-images.yml
+            - gh workflow disable monitor-upstream.yml
+            - echo "⚠️  All workflows disabled"
+
+    workflows:view:build:
+        desc: View build workflow details
+        cmds:
+            - gh workflow view build-images.yml
+
+    workflows:view:monitor:
+        desc: View monitoring workflow details
+        cmds:
+            - gh workflow view monitor-upstream.yml
+
+    # Common Build Scenarios
+    build:latest:
+        desc: Build latest main with all versions, both OSes, and all platforms
+        cmds:
+            - task: build
+              vars:
+                  PG_LAKE_REF: "main"
+                  PG_VERSIONS: "16,17,18"
+                  PLATFORMS: "linux/amd64,linux/arm64"
+
+    build:test:
+        desc: Test build (PG 18, AlmaLinux only, AMD64, from main)
+        cmds:
+            - task: build:quick
+              vars:
+                  PG_LAKE_REF: "main"
+
+    build:release:
+        desc: Build from latest upstream tag (both OSes, all platforms)
+        cmds:
+            - |
+                LATEST_TAG=$(gh api repos/snowflake-labs/pg_lake/tags --jq '.[0].name')
+                echo "🏷️  Latest upstream tag: $LATEST_TAG"
+                task build:tag PG_LAKE_REF=$LATEST_TAG
+
+    # Help
+    help:
+        desc: Show available tasks
+        silent: true
+        cmds:
+            - task --list-all
+
+    default:
+        desc: Show help
+        silent: true
+        cmds:
+            - task help
+

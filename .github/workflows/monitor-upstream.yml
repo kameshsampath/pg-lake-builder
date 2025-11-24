@@ -1,0 +1,182 @@
+name: Monitor Upstream pg_lake Repository
+
+on:
+  # Check for upstream changes every 6 hours
+  schedule:
+    - cron: "0 */6 * * *"
+
+  # Allow manual trigger to test
+  workflow_dispatch:
+
+env:
+  UPSTREAM_REPO: snowflake-labs/pg_lake
+  UPSTREAM_BRANCH: main
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Checkout builder repository
+        uses: actions/checkout@v4
+
+      - name: Get latest upstream commit
+        id: upstream
+        run: |
+          # Get the latest commit SHA from upstream main branch
+          LATEST_SHA=$(curl -s \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/commits/${{ env.UPSTREAM_BRANCH }}" \
+            | jq -r '.sha')
+
+          echo "latest_sha=$LATEST_SHA" >> $GITHUB_OUTPUT
+          echo "short_sha=${LATEST_SHA:0:7}" >> $GITHUB_OUTPUT
+          echo "Latest upstream commit: $LATEST_SHA"
+
+      - name: Check if commit is already built
+        id: check
+        run: |
+          # Check if we've already processed this commit
+          if [ -f ".last-build-commit" ]; then
+            LAST_BUILT=$(cat .last-build-commit)
+            echo "last_built=$LAST_BUILT" >> $GITHUB_OUTPUT
+            echo "Last built commit: $LAST_BUILT"
+          else
+            echo "last_built=none" >> $GITHUB_OUTPUT
+            echo "No previous builds recorded"
+          fi
+
+          if [ "${{ steps.upstream.outputs.latest_sha }}" != "$LAST_BUILT" ]; then
+            echo "needs_build=true" >> $GITHUB_OUTPUT
+            echo "🔔 New upstream changes detected!"
+          else
+            echo "needs_build=false" >> $GITHUB_OUTPUT
+            echo "✅ Already up-to-date"
+          fi
+
+      - name: Trigger build workflow
+        if: steps.check.outputs.needs_build == 'true'
+        run: |
+          gh workflow run build-images.yml \
+            -f pg_lake_repo=${{ env.UPSTREAM_REPO }} \
+            -f pg_lake_ref=${{ env.UPSTREAM_BRANCH }} \
+            -f pg_versions="16,17,18" \
+            -f platforms="linux/amd64,linux/arm64"
+
+          echo "🚀 Build triggered for commit ${{ steps.upstream.outputs.short_sha }}"
+          echo "   Building: PG 16, 17, 18 × AlmaLinux, Debian × AMD64, ARM64"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Update last built commit
+        if: steps.check.outputs.needs_build == 'true'
+        run: |
+          echo "${{ steps.upstream.outputs.latest_sha }}" > .last-build-commit
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .last-build-commit
+          git commit -m "chore: update last built commit to ${{ steps.upstream.outputs.short_sha }}"
+          git push
+
+      - name: Create summary
+        run: |
+          echo "## Upstream Monitor Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Upstream Repository:** \`${{ env.UPSTREAM_REPO }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Monitored Branch:** \`${{ env.UPSTREAM_BRANCH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Latest Commit:** \`${{ steps.upstream.outputs.short_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Last Built Commit:** \`${{ steps.check.outputs.last_built }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.check.outputs.needs_build }}" == "true" ]; then
+            echo "**Status:** 🚀 Build triggered for new changes" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Status:** ✅ Already up-to-date, no build needed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  check-tags:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Checkout builder repository
+        uses: actions/checkout@v4
+
+      - name: Get latest upstream tags
+        id: tags
+        run: |
+          # Get the latest tag from upstream
+          LATEST_TAG=$(curl -s \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/tags" \
+            | jq -r '.[0].name')
+
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "Latest upstream tag: $LATEST_TAG"
+
+      - name: Check if tag is already built
+        id: check-tag
+        run: |
+          # Check if we've already built this tag
+          if [ -f ".last-build-tag" ]; then
+            LAST_TAG=$(cat .last-build-tag)
+            echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
+            echo "Last built tag: $LAST_TAG"
+          else
+            echo "last_tag=none" >> $GITHUB_OUTPUT
+            echo "No previous tag builds recorded"
+          fi
+
+          if [ "${{ steps.tags.outputs.latest_tag }}" != "$LAST_TAG" ] && [ "${{ steps.tags.outputs.latest_tag }}" != "null" ]; then
+            echo "needs_build=true" >> $GITHUB_OUTPUT
+            echo "🏷️  New upstream tag detected!"
+          else
+            echo "needs_build=false" >> $GITHUB_OUTPUT
+            echo "✅ Tag already built or no tags found"
+          fi
+
+      - name: Trigger build workflow for tag
+        if: steps.check-tag.outputs.needs_build == 'true'
+        run: |
+          gh workflow run build-images.yml \
+            -f pg_lake_repo=${{ env.UPSTREAM_REPO }} \
+            -f pg_lake_ref=${{ steps.tags.outputs.latest_tag }} \
+            -f pg_versions="16,17,18" \
+            -f platforms="linux/amd64,linux/arm64"
+
+          echo "🚀 Build triggered for tag ${{ steps.tags.outputs.latest_tag }}"
+          echo "   Building: PG 16, 17, 18 × AlmaLinux, Debian × AMD64, ARM64"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Update last built tag
+        if: steps.check-tag.outputs.needs_build == 'true'
+        run: |
+          echo "${{ steps.tags.outputs.latest_tag }}" > .last-build-tag
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .last-build-tag
+          git commit -m "chore: update last built tag to ${{ steps.tags.outputs.latest_tag }}"
+          git push
+
+      - name: Create summary
+        run: |
+          echo "## Tag Monitor Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Upstream Repository:** \`${{ env.UPSTREAM_REPO }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Latest Tag:** \`${{ steps.tags.outputs.latest_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Last Built Tag:** \`${{ steps.check-tag.outputs.last_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.check-tag.outputs.needs_build }}" == "true" ]; then
+            echo "**Status:** 🚀 Build triggered for new tag" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Status:** ✅ Already up-to-date, no build needed" >> $GITHUB_STEP_SUMMARY
+          fi

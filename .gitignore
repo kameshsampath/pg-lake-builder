@@ -1,0 +1,10 @@
+# Local Taskfile overrides
+Taskfile.local.yml
+
+# Build artifacts
+*.log
+.DS_Store
+
+# DO NOT ignore these - they track upstream build state
+# .last-build-commit
+# .last-build-tag

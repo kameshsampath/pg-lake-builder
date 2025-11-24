@@ -1,5 +1,22 @@
 # pg_lake_builder Repository Setup
 
+> **⚠️ DISCLAIMER - Community/Developer Build**
+>
+> This is a **community-maintained** builder repository for creating Docker images from the [pg_lake](https://github.com/Snowflake-Labs/pg_lake) source code.
+>
+> **Important Notes:**
+> - ❌ **NOT maintained** by the pg_lake project committers or Snowflake Labs
+> - ❌ **NO official support** - use at your own risk
+> - ❌ **NOT endorsed** by the pg_lake project team
+> - ✅ **Community effort** - for development, testing, and personal use
+> - ✅ Images are built from official pg_lake source but with custom build configurations
+>
+> **For official pg_lake support and releases**, please refer to:
+> - Official repository: https://github.com/Snowflake-Labs/pg_lake
+> - Official documentation: https://github.com/Snowflake-Labs/pg_lake/blob/main/docs/README.md
+>
+> ---
+
 This document explains how to set up and use a separate `pg_lake_builder` repository to build and publish Docker images from the pg_lake source.
 
 ## Repository Structure
@@ -56,11 +73,20 @@ Create a `README.md` in your builder repository:
 ```markdown
 # pg_lake Docker Image Builder
 
+> **⚠️ COMMUNITY BUILD - NOT OFFICIALLY SUPPORTED**
+>
+> These are **unofficial, community-built** Docker images for pg_lake.
+> Not maintained or endorsed by Snowflake Labs or the pg_lake project team.
+
 This repository contains GitHub Actions workflows to build and publish Docker images for [pg_lake](https://github.com/snowflake-labs/pg_lake).
 
 ## Images Published
 
-Images are published to: `ghcr.io/kameshsampath/pg_lake` and `ghcr.io/kameshsampath/pgduck-server`
+**Community builds** published to:
+- `ghcr.io/kameshsampath/pg_lake`
+- `ghcr.io/kameshsampath/pgduck-server`
+
+**Note**: These are development/testing images. For production use, please consult the [official pg_lake repository](https://github.com/Snowflake-Labs/pg_lake).
 
 ## Supported Versions
 
@@ -70,7 +96,17 @@ Images are published to: `ghcr.io/kameshsampath/pg_lake` and `ghcr.io/kameshsamp
 
 ## Automated Builds
 
-Images are automatically built weekly on Sundays at midnight UTC.
+Images are automatically built in two ways:
+
+1. **Upstream Monitoring** (Every 6 hours)
+   - Monitors the [upstream pg_lake repository](https://github.com/snowflake-labs/pg_lake) for new commits to `main`
+   - Monitors for new tags/releases
+   - Automatically triggers builds when changes are detected
+   - Tracks last built commit/tag to avoid duplicate builds
+
+2. **Weekly Scheduled Build** (Sundays at midnight UTC)
+   - Ensures images are rebuilt regularly even without upstream changes
+   - Picks up base image updates and security patches
 
 ## Manual Builds
 
@@ -98,7 +134,12 @@ docker run -d --name pg_lake ghcr.io/kameshsampath/pg_lake:abc1234-pg18-almalinu
 
 ## License
 
-This builder repository configuration is MIT licensed. The pg_lake source code has its own license.
+> **⚠️ DISCLAIMER**: This is a community/developer build repository.
+
+- **This builder repository**: Configuration files are MIT licensed
+- **pg_lake source code**: Licensed under Apache 2.0 by Snowflake Inc. (see [pg_lake LICENSE](https://github.com/Snowflake-Labs/pg_lake/blob/main/LICENSE))
+- **Docker images produced**: Contain pg_lake software licensed under Apache 2.0
+- **No warranty**: These community builds come with NO WARRANTY or official support
 
 ```
 
@@ -150,14 +191,18 @@ gh workflow run build-and-push-images.yml \
   -f pg_lake_ref=main
 ```
 
-### Build a Specific Release
+### Build a Specific Release Tag
 
 ```bash
-gh workflow run build-and-push-images.yml \
+gh workflow run build-images.yml \
   -f pg_lake_repo=snowflake-labs/pg_lake \
-  -f pg_lake_ref=v3.1 \
+  -f pg_lake_ref=v3.0.0 \
   -f pg_versions=18
 ```
+
+This will create images tagged as:
+- `ghcr.io/kameshsampath/pg_lake:v3.0.0-pg18-almalinux`
+- `ghcr.io/kameshsampath/pg_lake:v3.0.0-pg18-debian`
 
 ### Build from a Feature Branch
 
@@ -181,7 +226,9 @@ gh workflow run build-and-push-images.yml \
 
 ## Image Naming Convention
 
-Images are tagged with the commit SHA from the **pg_lake source repository**:
+Images are tagged based on what is being built from the **pg_lake source repository**:
+
+### Building from a Branch/Commit (SHA-based tagging)
 
 ```
 ghcr.io/kameshsampath/pg_lake:<source-commit-sha>-pg<version>-<os>
@@ -196,14 +243,37 @@ ghcr.io/kameshsampath/pgduck-server:abc1234-pg18-almalinux
 ```
 
 Where:
-
 - `abc1234` = First 7 characters of the pg_lake source commit
 - `pg18` = PostgreSQL major version
 - `almalinux` = Base OS
 
+### Building from a Tag (Tag-based tagging) 🏷️
+
+When building from an official release tag, the tag name is used:
+
+```
+ghcr.io/kameshsampath/pg_lake:<tag>-pg<version>-<os>
+ghcr.io/kameshsampath/pgduck-server:<tag>-pg<version>-<os>
+```
+
+Example:
+
+```
+ghcr.io/kameshsampath/pg_lake:v3.0.0-pg18-almalinux
+ghcr.io/kameshsampath/pgduck-server:v3.0.0-pg18-almalinux
+```
+
+Where:
+- `v3.0.0` = The release tag name
+- `pg18` = PostgreSQL major version
+- `almalinux` = Base OS
+
+### Additional Tags
+
 Each image also gets a shorter tag without the OS:
 
-- `ghcr.io/kameshsampath/pg_lake:abc1234-pg18`
+- `ghcr.io/kameshsampath/pg_lake:abc1234-pg18` (from commit)
+- `ghcr.io/kameshsampath/pg_lake:v3.0.0-pg18` (from tag)
 
 ## Monitoring Builds
 
@@ -236,23 +306,45 @@ docker pull ghcr.io/kameshsampath/pg_lake:latest
 
 ## Build Schedule
 
-The workflow runs automatically:
+The repository runs multiple automated workflows:
 
-- **Weekly**: Every Sunday at 00:00 UTC
-- **Manual**: On-demand via GitHub Actions UI or CLI
+### 1. **Upstream Monitoring** (`monitor-upstream.yml`)
 
-To change the schedule, edit the cron expression in the workflow file:
+Runs every 6 hours and:
+- Checks for new commits on `snowflake-labs/pg_lake` main branch
+- Checks for new tags/releases
+- Automatically triggers builds when changes are detected
+- Stores last built commit/tag in `.last-build-commit` and `.last-build-tag`
+
+To change the monitoring frequency:
+
+```yaml
+schedule:
+  - cron: "0 */6 * * *"  # Every 6 hours (current)
+  - cron: "0 */1 * * *"  # Every hour (more frequent)
+  - cron: "0 */12 * * *" # Every 12 hours (less frequent)
+```
+
+### 2. **Weekly Scheduled Build** (`build-images.yml`)
+
+Runs every Sunday at 00:00 UTC:
+- Ensures regular rebuilds even without upstream changes
+- Picks up base image updates and security patches
 
 ```yaml
 schedule:
   - cron: "0 0 * * 0"  # Every Sunday at midnight UTC
 ```
 
-Examples:
+Examples for custom schedules:
 
 - Daily: `"0 2 * * *"` (2 AM UTC every day)
 - Monthly: `"0 0 1 * *"` (First day of each month)
 - Twice weekly: `"0 0 * * 0,3"` (Sunday and Wednesday)
+
+### 3. **Manual Trigger**
+
+Both workflows can be triggered manually via GitHub Actions UI or CLI
 
 ## Customization
 
@@ -363,8 +455,12 @@ To publish to both ghcr.io and Docker Hub, modify the workflow to include additi
 
 ## Support
 
+> **⚠️ IMPORTANT**: This is a community/developer build repository. **No official support is provided.**
+
 For issues with:
 
-- **pg_lake source code**: Open an issue in the [pg_lake repository](https://github.com/snowflake-labs/pg_lake/issues)
-- **Build workflow**: Open an issue in this repository
-- **Docker images**: Check both repositories for related issues
+- **pg_lake source code**: Open an issue in the [official pg_lake repository](https://github.com/snowflake-labs/pg_lake/issues)
+- **Build workflow in this repo**: Open an issue in this repository (community support only)
+- **Docker images from this builder**: These are **unofficial builds** - use at your own risk
+
+**For production support**, please use official pg_lake releases and contact the Snowflake Labs team through their official channels.

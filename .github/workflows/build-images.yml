@@ -56,48 +56,64 @@ jobs:
             fail-fast: false
             matrix:
                 pg_major: [16, 17, 18]
-                base_image_os: [almalinux,debian]
+                base_image_os: [almalinux, debian]
 
         steps:
+            - name: Checkout builder repository (for Taskfile)
+              uses: actions/checkout@v4
+              with:
+                  path: builder
+
             - name: Checkout pg_lake source repository
               uses: actions/checkout@v4
               with:
                   repository: ${{ env.PG_LAKE_REPO }}
                   ref: ${{ env.PG_LAKE_REF }}
                   submodules: "recursive"
+                  path: pg_lake
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
 
-            - name: Log in to GitHub Container Registry
-              uses: docker/login-action@v3
-              with:
-                  registry: ${{ env.REGISTRY }}
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-
             - name: Install Task
-              uses: arduino/setup-task@v2
-              with:
-                  version: 3.x
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+              uses: go-task/setup-task@v1
 
-            - name: Get pg_lake commit SHA
-              id: pg-lake-sha
+            - name: Get pg_lake version info
+              id: pg-lake-version
               run: |
-                  cd ${{ github.workspace }}
+                  cd pg_lake
+
+                  # Get commit SHA (always available)
                   PG_LAKE_SHA=$(git rev-parse HEAD | cut -c1-7)
                   echo "sha=$PG_LAKE_SHA" >> $GITHUB_OUTPUT
-                  echo "Building pg_lake from commit: $PG_LAKE_SHA"
+
+                  # Check if we're on a tag
+                  TAG_NAME=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+                  if [ -n "$TAG_NAME" ]; then
+                    # Building from a tag - use tag name as version
+                    VERSION="$TAG_NAME"
+                    echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+                    echo "is_tag=true" >> $GITHUB_OUTPUT
+                    echo "Building pg_lake from tag: $TAG_NAME (commit: $PG_LAKE_SHA)"
+                  else
+                    # Building from branch/commit - use SHA as version
+                    VERSION="$PG_LAKE_SHA"
+                    echo "tag=" >> $GITHUB_OUTPUT
+                    echo "is_tag=false" >> $GITHUB_OUTPUT
+                    echo "Building pg_lake from commit: $PG_LAKE_SHA"
+                  fi
+
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
 
             - name: Generate image tags
               id: tags
               run: |
-                  echo "version=${{ steps.pg-lake-sha.outputs.sha }}" >> $GITHUB_OUTPUT
+                  echo "version=${{ steps.pg-lake-version.outputs.version }}" >> $GITHUB_OUTPUT
                   echo "os_tag=${{ matrix.base_image_os }}" >> $GITHUB_OUTPUT
 
             - name: Build and push images for PG ${{ matrix.pg_major }}
-              working-directory: ./docker
+              working-directory: ./pg_lake/docker
               env:
                   REGISTRY: ${{ env.REGISTRY }}
                   IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
@@ -147,10 +163,22 @@ jobs:
                   repository: ${{ env.PG_LAKE_REPO }}
                   ref: ${{ env.PG_LAKE_REF }}
                   fetch-depth: 1
+                  path: pg_lake
 
             - name: Generate summary
               run: |
+                  cd pg_lake
                   PG_LAKE_SHA=$(git rev-parse HEAD | cut -c1-7)
+                  TAG_NAME=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+                  # Determine version to use in image tags
+                  if [ -n "$TAG_NAME" ]; then
+                    VERSION="$TAG_NAME"
+                    BUILD_TYPE="Tag"
+                  else
+                    VERSION="$PG_LAKE_SHA"
+                    BUILD_TYPE="Commit"
+                  fi
 
                   echo "## Build and Push Summary" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
@@ -158,17 +186,36 @@ jobs:
                   echo "- **Repository:** \`${{ env.PG_LAKE_REPO }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- **Branch/Ref:** \`${{ env.PG_LAKE_REF }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- **Commit SHA:** \`$PG_LAKE_SHA\`" >> $GITHUB_STEP_SUMMARY
+
+                  if [ -n "$TAG_NAME" ]; then
+                    echo "- **Tag:** \`$TAG_NAME\` 🏷️" >> $GITHUB_STEP_SUMMARY
+                  fi
+
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "### Images Built and Pushed" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Version Tag:** \`$PG_LAKE_SHA\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Build Type:** $BUILD_TYPE" >> $GITHUB_STEP_SUMMARY
+                  echo "**Version Tag:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Images:**" >> $GITHUB_STEP_SUMMARY
-                  echo "- \`ghcr.io/${{ github.repository_owner }}/pg_lake:${PG_LAKE_SHA}-pg16-almalinux\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- \`ghcr.io/${{ github.repository_owner }}/pg_lake:${PG_LAKE_SHA}-pg17-almalinux\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- \`ghcr.io/${{ github.repository_owner }}/pg_lake:${PG_LAKE_SHA}-pg18-almalinux\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- \`ghcr.io/${{ github.repository_owner }}/pgduck-server:${PG_LAKE_SHA}-pg16-almalinux\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- \`ghcr.io/${{ github.repository_owner }}/pgduck-server:${PG_LAKE_SHA}-pg17-almalinux\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- \`ghcr.io/${{ github.repository_owner }}/pgduck-server:${PG_LAKE_SHA}-pg18-almalinux\`" >> $GITHUB_STEP_SUMMARY
+
+                  # Define arrays for PG versions and OS types
+                  PG_VERSIONS=(16 17 18)
+                  OS_TYPES=(almalinux debian)
+
+                  echo "#### pg_lake Images:" >> $GITHUB_STEP_SUMMARY
+                  for pg in "${PG_VERSIONS[@]}"; do
+                    for os in "${OS_TYPES[@]}"; do
+                      echo "- \`ghcr.io/${{ github.repository_owner }}/pg_lake:${VERSION}-pg${pg}-${os}\`" >> $GITHUB_STEP_SUMMARY
+                    done
+                  done
+
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "#### pgduck-server Images:" >> $GITHUB_STEP_SUMMARY
+                  for pg in "${PG_VERSIONS[@]}"; do
+                    for os in "${OS_TYPES[@]}"; do
+                      echo "- \`ghcr.io/${{ github.repository_owner }}/pgduck-server:${VERSION}-pg${pg}-${os}\`" >> $GITHUB_STEP_SUMMARY
+                    done
+                  done
+
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "**Status:** ${{ needs.build-and-push.result }}" >> $GITHUB_STEP_SUMMARY
