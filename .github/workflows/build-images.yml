@@ -1,253 +1,253 @@
 name: Build and Push Docker Images
 
 on:
-    # Manual trigger only (automatic builds handled by monitor-upstream.yml)
-    workflow_dispatch:
-        inputs:
-            pg_lake_repo:
-                description: "pg_lake source repository"
-                required: false
-                default: "snowflake-labs/pg_lake"
-                type: string
-            pg_lake_ref:
-                description: "pg_lake branch/tag/commit to build"
-                required: false
-                default: "main"
-                type: string
-            pg_versions:
-                description: 'PostgreSQL versions to build (comma-separated, e.g., "16,17,18")'
-                required: false
-                default: "16,17,18"
-                type: string
-            base_image_os:
-                description: "Base image OS"
-                required: false
-                default: "almalinux"
-                type: choice
-                options:
-                    - almalinux
-                    - debian
-            platforms:
-                description: "Target platforms"
-                required: false
-                default: "linux/amd64,linux/arm64"
-                type: string
+  # Manual trigger only (automatic builds handled by monitor-upstream.yml)
+  workflow_dispatch:
+    inputs:
+      pg_lake_repo:
+        description: "pg_lake source repository"
+        required: false
+        default: "snowflake-labs/pg_lake"
+        type: string
+      pg_lake_ref:
+        description: "pg_lake branch/tag/commit to build"
+        required: false
+        default: "main"
+        type: string
+      pg_versions:
+        description: 'PostgreSQL versions to build (comma-separated, e.g., "16,17,18")'
+        required: false
+        default: "16,17,18"
+        type: string
+      base_image_os:
+        description: "Base image OS"
+        required: false
+        default: "almalinux"
+        type: choice
+        options:
+          - almalinux
+          - debian
+      platforms:
+        description: "Target platforms"
+        required: false
+        default: "linux/amd64,linux/arm64"
+        type: string
 
 env:
-    REGISTRY: ghcr.io
-    IMAGE_OWNER: ${{ github.repository_owner }}
-    PG_LAKE_REPO: ${{ inputs.pg_lake_repo || 'snowflake-labs/pg_lake' }}
-    PG_LAKE_REF: ${{ inputs.pg_lake_ref || 'main' }}
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
+  PG_LAKE_REPO: ${{ inputs.pg_lake_repo || 'snowflake-labs/pg_lake' }}
+  PG_LAKE_REF: ${{ inputs.pg_lake_ref || 'main' }}
 
 jobs:
-    prepare-matrix:
-        runs-on: ubuntu-latest
-        outputs:
-            pg_versions: ${{ steps.set-matrix.outputs.pg_versions }}
-        steps:
-            - name: Set matrix
-              id: set-matrix
-              run: |
-                  # Parse pg_versions input (comma-separated)
-                  INPUT_VERSIONS="${{ inputs.pg_versions || '16,17,18' }}"
-                  # Convert comma-separated to JSON array
-                  PG_VERSIONS=$(echo "$INPUT_VERSIONS" | jq -R -c 'split(",") | map(tonumber)')
-                  echo "pg_versions=$PG_VERSIONS" >> $GITHUB_OUTPUT
-                  echo "Building PostgreSQL versions: $PG_VERSIONS"
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      pg_versions: ${{ steps.set-matrix.outputs.pg_versions }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          # Parse pg_versions input (comma-separated)
+          INPUT_VERSIONS="${{ inputs.pg_versions || '16,17,18' }}"
+          # Convert comma-separated to JSON array
+          PG_VERSIONS=$(echo "$INPUT_VERSIONS" | jq -R -c 'split(",") | map(tonumber)')
+          echo "pg_versions=$PG_VERSIONS" >> $GITHUB_OUTPUT
+          echo "Building PostgreSQL versions: $PG_VERSIONS"
 
-    build-and-push:
-        needs: prepare-matrix
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            packages: write
-            attestations: write
-            id-token: write
+  build-and-push:
+    needs: prepare-matrix
+    runs-on: ubuntu-latest-4-cores # GitHub Pro: 4 cores, 16 GB RAM, 150 GB SSD
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
 
-        strategy:
-            fail-fast: false
-            matrix:
-                pg_major: ${{ fromJson(needs.prepare-matrix.outputs.pg_versions) }}
-                base_image_os: [almalinux, debian]
+    strategy:
+      fail-fast: false
+      matrix:
+        pg_major: ${{ fromJson(needs.prepare-matrix.outputs.pg_versions) }}
+        base_image_os: [almalinux, debian]
 
-        steps:
-            - name: Checkout builder repository (for Taskfile)
-              uses: actions/checkout@v4
-              with:
-                  path: builder
+    steps:
+      - name: Checkout builder repository (for Taskfile)
+        uses: actions/checkout@v4
+        with:
+          path: builder
 
-            - name: Checkout pg_lake source repository
-              uses: actions/checkout@v4
-              with:
-                  repository: ${{ env.PG_LAKE_REPO }}
-                  ref: ${{ env.PG_LAKE_REF }}
-                  submodules: "recursive"
-                  path: pg_lake
+      - name: Checkout pg_lake source repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PG_LAKE_REPO }}
+          ref: ${{ env.PG_LAKE_REF }}
+          submodules: "recursive"
+          path: pg_lake
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-            - name: Install Task
-              uses: go-task/setup-task@v1
+      - name: Install Task
+        uses: go-task/setup-task@v1
 
-            - name: Get pg_lake version info
-              id: pg-lake-version
-              run: |
-                  cd pg_lake
+      - name: Get pg_lake version info
+        id: pg-lake-version
+        run: |
+          cd pg_lake
 
-                  # Get commit SHA (always available)
-                  PG_LAKE_SHA=$(git rev-parse HEAD | cut -c1-7)
-                  echo "sha=$PG_LAKE_SHA" >> $GITHUB_OUTPUT
+          # Get commit SHA (always available)
+          PG_LAKE_SHA=$(git rev-parse HEAD | cut -c1-7)
+          echo "sha=$PG_LAKE_SHA" >> $GITHUB_OUTPUT
 
-                  # Check if we're on a tag
-                  TAG_NAME=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+          # Check if we're on a tag
+          TAG_NAME=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
-                  if [ -n "$TAG_NAME" ]; then
-                    # Building from a tag - use tag name as version
-                    VERSION="$TAG_NAME"
-                    echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
-                    echo "is_tag=true" >> $GITHUB_OUTPUT
-                    echo "Building pg_lake from tag: $TAG_NAME (commit: $PG_LAKE_SHA)"
-                  else
-                    # Building from branch/commit - use SHA as version
-                    VERSION="$PG_LAKE_SHA"
-                    echo "tag=" >> $GITHUB_OUTPUT
-                    echo "is_tag=false" >> $GITHUB_OUTPUT
-                    echo "Building pg_lake from commit: $PG_LAKE_SHA"
-                  fi
+          if [ -n "$TAG_NAME" ]; then
+            # Building from a tag - use tag name as version
+            VERSION="$TAG_NAME"
+            echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+            echo "is_tag=true" >> $GITHUB_OUTPUT
+            echo "Building pg_lake from tag: $TAG_NAME (commit: $PG_LAKE_SHA)"
+          else
+            # Building from branch/commit - use SHA as version
+            VERSION="$PG_LAKE_SHA"
+            echo "tag=" >> $GITHUB_OUTPUT
+            echo "is_tag=false" >> $GITHUB_OUTPUT
+            echo "Building pg_lake from commit: $PG_LAKE_SHA"
+          fi
 
-                  echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-            - name: Generate image tags
-              id: tags
-              run: |
-                  echo "version=${{ steps.pg-lake-version.outputs.version }}" >> $GITHUB_OUTPUT
-                  echo "os_tag=${{ matrix.base_image_os }}" >> $GITHUB_OUTPUT
+      - name: Generate image tags
+        id: tags
+        run: |
+          echo "version=${{ steps.pg-lake-version.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "os_tag=${{ matrix.base_image_os }}" >> $GITHUB_OUTPUT
 
-            - name: Verify Taskfile exists
-              run: |
-                  if [ -f pg_lake/docker/Taskfile.yml ]; then
-                    echo "✅ Using Taskfile from pg_lake/docker/"
-                    ls -la pg_lake/docker/Taskfile.yml
-                  else
-                    echo "❌ ERROR: Taskfile not found in pg_lake/docker/"
-                    echo "Available files in pg_lake/docker:"
-                    ls -la pg_lake/docker/
-                    exit 1
-                  fi
+      - name: Verify Taskfile exists
+        run: |
+          if [ -f pg_lake/docker/Taskfile.yml ]; then
+            echo "✅ Using Taskfile from pg_lake/docker/"
+            ls -la pg_lake/docker/Taskfile.yml
+          else
+            echo "❌ ERROR: Taskfile not found in pg_lake/docker/"
+            echo "Available files in pg_lake/docker:"
+            ls -la pg_lake/docker/
+            exit 1
+          fi
 
-            - name: Build and push images for PG ${{ matrix.pg_major }}
-              working-directory: ./pg_lake/docker
-              env:
-                  REGISTRY: ${{ env.REGISTRY }}
-                  IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
-                  PG_MAJOR: ${{ matrix.pg_major }}
-                  VERSION: ${{ steps.tags.outputs.version }}
-                  BASE_IMAGE_OS: ${{ matrix.base_image_os }}
-                  PLATFORMS: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  GITHUB_ACTOR: ${{ github.actor }}
-              run: |
-                  # Set BASE_IMAGE_TAG based on OS
-                  if [ "${{ matrix.base_image_os }}" = "almalinux" ]; then
-                    BASE_IMAGE_TAG="9"
-                  else
-                    BASE_IMAGE_TAG="latest"
-                  fi
-                  echo "Building with ${{ matrix.base_image_os }}:${BASE_IMAGE_TAG}"
+      - name: Build and push images for PG ${{ matrix.pg_major }}
+        working-directory: ./pg_lake/docker
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
+          PG_MAJOR: ${{ matrix.pg_major }}
+          VERSION: ${{ steps.tags.outputs.version }}
+          BASE_IMAGE_OS: ${{ matrix.base_image_os }}
+          PLATFORMS: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          # Set BASE_IMAGE_TAG based on OS
+          if [ "${{ matrix.base_image_os }}" = "almalinux" ]; then
+            BASE_IMAGE_TAG="9"
+          else
+            BASE_IMAGE_TAG="latest"
+          fi
+          echo "Building with ${{ matrix.base_image_os }}:${BASE_IMAGE_TAG}"
 
-                  # Login to GHCR for buildx
-                  task login:ghcr
+          # Login to GHCR for buildx
+          task login:ghcr
 
-                  # Build and push all images (pg_lake_postgres and pgduck-server)
-                  task push:all \
-                    PG_MAJOR=${{ matrix.pg_major }} \
-                    VERSION=${{ steps.tags.outputs.version }} \
-                    BASE_IMAGE_OS=${{ matrix.base_image_os }} \
-                    BASE_IMAGE_TAG=${BASE_IMAGE_TAG} \
-                    PLATFORMS="${PLATFORMS}" \
-                    REGISTRY=${{ env.REGISTRY }} \
-                    IMAGE_OWNER=${{ env.IMAGE_OWNER }}
+          # Build and push all images (pg_lake_postgres and pgduck-server)
+          task push:all \
+            PG_MAJOR=${{ matrix.pg_major }} \
+            VERSION=${{ steps.tags.outputs.version }} \
+            BASE_IMAGE_OS=${{ matrix.base_image_os }} \
+            BASE_IMAGE_TAG=${BASE_IMAGE_TAG} \
+            PLATFORMS="${PLATFORMS}" \
+            REGISTRY=${{ env.REGISTRY }} \
+            IMAGE_OWNER=${{ env.IMAGE_OWNER }}
 
-            - name: Generate artifact attestation for pg_lake
-              uses: actions/attest-build-provenance@v1
-              with:
-                  subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/pg_lake
-                  subject-digest: ${{ steps.tags.outputs.version }}-pg${{ matrix.pg_major }}-${{ matrix.base_image_os }}
-                  push-to-registry: false
+      - name: Generate artifact attestation for pg_lake
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/pg_lake
+          subject-digest: ${{ steps.tags.outputs.version }}-pg${{ matrix.pg_major }}-${{ matrix.base_image_os }}
+          push-to-registry: false
 
-            - name: Generate artifact attestation for pgduck-server
-              uses: actions/attest-build-provenance@v1
-              with:
-                  subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/pgduck-server
-                  subject-digest: ${{ steps.tags.outputs.version }}-pg${{ matrix.pg_major }}-${{ matrix.base_image_os }}
-                  push-to-registry: false
+      - name: Generate artifact attestation for pgduck-server
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/pgduck-server
+          subject-digest: ${{ steps.tags.outputs.version }}-pg${{ matrix.pg_major }}-${{ matrix.base_image_os }}
+          push-to-registry: false
 
-    summary:
-        needs: [prepare-matrix, build-and-push]
-        runs-on: ubuntu-latest
-        if: always()
-        steps:
-            - name: Checkout pg_lake source repository
-              uses: actions/checkout@v4
-              with:
-                  repository: ${{ env.PG_LAKE_REPO }}
-                  ref: ${{ env.PG_LAKE_REF }}
-                  fetch-depth: 1
-                  path: pg_lake
+  summary:
+    needs: [prepare-matrix, build-and-push]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout pg_lake source repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PG_LAKE_REPO }}
+          ref: ${{ env.PG_LAKE_REF }}
+          fetch-depth: 1
+          path: pg_lake
 
-            - name: Generate summary
-              run: |
-                  cd pg_lake
-                  PG_LAKE_SHA=$(git rev-parse HEAD | cut -c1-7)
-                  TAG_NAME=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+      - name: Generate summary
+        run: |
+          cd pg_lake
+          PG_LAKE_SHA=$(git rev-parse HEAD | cut -c1-7)
+          TAG_NAME=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
-                  # Determine version to use in image tags
-                  if [ -n "$TAG_NAME" ]; then
-                    VERSION="$TAG_NAME"
-                    BUILD_TYPE="Tag"
-                  else
-                    VERSION="$PG_LAKE_SHA"
-                    BUILD_TYPE="Commit"
-                  fi
+          # Determine version to use in image tags
+          if [ -n "$TAG_NAME" ]; then
+            VERSION="$TAG_NAME"
+            BUILD_TYPE="Tag"
+          else
+            VERSION="$PG_LAKE_SHA"
+            BUILD_TYPE="Commit"
+          fi
 
-                  echo "## Build and Push Summary" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "### Source Repository" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Repository:** \`${{ env.PG_LAKE_REPO }}\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Branch/Ref:** \`${{ env.PG_LAKE_REF }}\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Commit SHA:** \`$PG_LAKE_SHA\`" >> $GITHUB_STEP_SUMMARY
+          echo "## Build and Push Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Source Repository" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository:** \`${{ env.PG_LAKE_REPO }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch/Ref:** \`${{ env.PG_LAKE_REF }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit SHA:** \`$PG_LAKE_SHA\`" >> $GITHUB_STEP_SUMMARY
 
-                  if [ -n "$TAG_NAME" ]; then
-                    echo "- **Tag:** \`$TAG_NAME\` 🏷️" >> $GITHUB_STEP_SUMMARY
-                  fi
+          if [ -n "$TAG_NAME" ]; then
+            echo "- **Tag:** \`$TAG_NAME\` 🏷️" >> $GITHUB_STEP_SUMMARY
+          fi
 
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "### Images Built and Pushed" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Build Type:** $BUILD_TYPE" >> $GITHUB_STEP_SUMMARY
-                  echo "**Version Tag:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Images Built and Pushed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Type:** $BUILD_TYPE" >> $GITHUB_STEP_SUMMARY
+          echo "**Version Tag:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
-                  # Parse PG versions from input
-                  INPUT_VERSIONS="${{ inputs.pg_versions || '16,17,18' }}"
-                  IFS=',' read -ra PG_VERSIONS <<< "$INPUT_VERSIONS"
-                  OS_TYPES=(almalinux debian)
+          # Parse PG versions from input
+          INPUT_VERSIONS="${{ inputs.pg_versions || '16,17,18' }}"
+          IFS=',' read -ra PG_VERSIONS <<< "$INPUT_VERSIONS"
+          OS_TYPES=(almalinux debian)
 
-                  echo "#### pg_lake Images:" >> $GITHUB_STEP_SUMMARY
-                  for pg in "${PG_VERSIONS[@]}"; do
-                    for os in "${OS_TYPES[@]}"; do
-                      echo "- \`ghcr.io/${{ github.repository_owner }}/pg_lake:${VERSION}-pg${pg}-${os}\`" >> $GITHUB_STEP_SUMMARY
-                    done
-                  done
+          echo "#### pg_lake Images:" >> $GITHUB_STEP_SUMMARY
+          for pg in "${PG_VERSIONS[@]}"; do
+            for os in "${OS_TYPES[@]}"; do
+              echo "- \`ghcr.io/${{ github.repository_owner }}/pg_lake:${VERSION}-pg${pg}-${os}\`" >> $GITHUB_STEP_SUMMARY
+            done
+          done
 
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "#### pgduck-server Images:" >> $GITHUB_STEP_SUMMARY
-                  for pg in "${PG_VERSIONS[@]}"; do
-                    for os in "${OS_TYPES[@]}"; do
-                      echo "- \`ghcr.io/${{ github.repository_owner }}/pgduck-server:${VERSION}-pg${pg}-${os}\`" >> $GITHUB_STEP_SUMMARY
-                    done
-                  done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### pgduck-server Images:" >> $GITHUB_STEP_SUMMARY
+          for pg in "${PG_VERSIONS[@]}"; do
+            for os in "${OS_TYPES[@]}"; do
+              echo "- \`ghcr.io/${{ github.repository_owner }}/pgduck-server:${VERSION}-pg${pg}-${os}\`" >> $GITHUB_STEP_SUMMARY
+            done
+          done
 
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Status:** ${{ needs.build-and-push.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ needs.build-and-push.result }}" >> $GITHUB_STEP_SUMMARY
