@@ -42,7 +42,7 @@ env:
 
 jobs:
   prepare-matrix:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       pg_versions: ${{ steps.set-matrix.outputs.pg_versions }}
       os_versions: ${{ steps.set-matrix.outputs.os_versions }}
@@ -71,7 +71,7 @@ jobs:
 
   build-and-push:
     needs: prepare-matrix
-    runs-on: ubuntu-latest-4-cores # GitHub Pro: 4 cores, 16 GB RAM, 150 GB SSD
+    runs-on: self-hosted
     permissions:
       contents: read
       packages: write
@@ -199,7 +199,7 @@ jobs:
 
   summary:
     needs: [prepare-matrix, build-and-push]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: always()
     steps:
       - name: Checkout pg_lake source repository
