@@ -42,7 +42,7 @@ env:
 
 jobs:
   prepare-matrix:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       pg_versions: ${{ steps.set-matrix.outputs.pg_versions }}
       os_versions: ${{ steps.set-matrix.outputs.os_versions }}
@@ -71,7 +71,7 @@ jobs:
 
   build-and-push:
     needs: prepare-matrix
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -199,7 +199,7 @@ jobs:
 
   summary:
     needs: [prepare-matrix, build-and-push]
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Checkout pg_lake source repository
