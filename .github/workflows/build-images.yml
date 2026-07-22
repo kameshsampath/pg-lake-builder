@@ -150,6 +150,13 @@ jobs:
             exit 1
           fi
 
+      - name: Patch Dockerfile (add missing gettext-devel for AlmaLinux)
+        run: |
+          # pg_cron links against libintl but gettext-devel is missing from
+          # the upstream Dockerfile's AlmaLinux package list.
+          # See: https://github.com/Snowflake-Labs/pg_lake/issues/460
+          sed -i 's/            libcurl-devel \\/            gettext-devel \\\n            libcurl-devel \\/' pg_lake/docker/Dockerfile
+
       - name: Build and push images for PG ${{ matrix.pg_major }}
         working-directory: ./pg_lake/docker
         env:
