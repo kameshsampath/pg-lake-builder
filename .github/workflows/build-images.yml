@@ -42,7 +42,7 @@ env:
 
 jobs:
   prepare-matrix:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       pg_versions: ${{ steps.set-matrix.outputs.pg_versions }}
       os_versions: ${{ steps.set-matrix.outputs.os_versions }}
@@ -71,7 +71,7 @@ jobs:
 
   build-and-push:
     needs: prepare-matrix
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -150,6 +150,13 @@ jobs:
             exit 1
           fi
 
+      - name: Patch Dockerfile (add missing gettext-devel for AlmaLinux)
+        run: |
+          # pg_cron links against libintl but gettext-devel is missing from
+          # the upstream Dockerfile's AlmaLinux package list.
+          # See: https://github.com/Snowflake-Labs/pg_lake/issues/460
+          sed -i 's/            libcurl-devel \\/            gettext-devel \\\n            libcurl-devel \\/' pg_lake/docker/Dockerfile
+
       - name: Build and push images for PG ${{ matrix.pg_major }}
         working-directory: ./pg_lake/docker
         env:
@@ -199,7 +206,7 @@ jobs:
 
   summary:
     needs: [prepare-matrix, build-and-push]
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Checkout pg_lake source repository
